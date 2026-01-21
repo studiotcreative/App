@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { AuthProvider, useAuth } from '@/components/auth/AuthProvider';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from "@/components/ui/skeleton";
 
 function LayoutContent({ children, currentPageName }) {
@@ -38,10 +38,10 @@ function LayoutContent({ children, currentPageName }) {
   queryFn: async () => {
     const { data, error } = await supabase
       .from('workspaces')
-      .select('*')
+      .select("id, name, created_at, created_by")
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return data ?? [];
   },
   enabled: !loading && isAdmin()
 });
@@ -163,7 +163,7 @@ function LayoutContent({ children, currentPageName }) {
                     <p className="text-xs text-slate-500">{user?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => supabase.auth.signOut()} className="text-red-600">
+                  <DropdownMenuItem onClick={() => signOut()} className="text-red-600">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
                   </DropdownMenuItem>
@@ -198,10 +198,9 @@ function LayoutContent({ children, currentPageName }) {
 
 export default function Layout({ children, currentPageName }) {
   return (
-    <AuthProvider>
-      <LayoutContent currentPageName={currentPageName}>
+    <LayoutContent currentPageName={currentPageName}>
         {children}
       </LayoutContent>
-    </AuthProvider>
+    </LayoutContent>
   );
 }
