@@ -33,13 +33,17 @@ function LayoutContent({ children, currentPageName }) {
   const { user, userRole, loading, isAdmin, isClient, assignedAccounts, workspaceMemberships } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { data: workspaces = [], isLoading } = useQuery({
+  const { data: workspaces = [] } = useQuery({
   queryKey: ['workspaces'],
   queryFn: async () => {
-    const { data, error } = await supabase.from('workspaces').select('*').order('name')
-    if (error) throw error
-    return data
-  }
+    const { data, error } = await supabase
+      .from('workspaces')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  enabled: !loading && isAdmin()
 });
 
   if (loading) {
@@ -159,13 +163,7 @@ function LayoutContent({ children, currentPageName }) {
                     <p className="text-xs text-slate-500">{user?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-  onClick={async () => {
-    await supabase.auth.signOut();
-  }}
-  className="text-red-600"
->
-
+                  <DropdownMenuItem onClick={() => supabase.auth.signOut()} className="text-red-600">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
                   </DropdownMenuItem>
