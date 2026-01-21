@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Calendar, 
@@ -33,11 +33,14 @@ function LayoutContent({ children, currentPageName }) {
   const { user, userRole, loading, isAdmin, isClient, assignedAccounts, workspaceMemberships } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => base44.entities.Workspace.list(),
-    enabled: !loading && isAdmin()
-  });
+  const { data: workspaces = [], isLoading } = useQuery({
+  queryKey: ['workspaces'],
+  queryFn: async () => {
+    const { data, error } = await supabase.from('workspaces').select('*').order('name')
+    if (error) throw error
+    return data
+  }
+});
 
   if (loading) {
     return (
@@ -156,7 +159,13 @@ function LayoutContent({ children, currentPageName }) {
                     <p className="text-xs text-slate-500">{user?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => base44.auth.logout()} className="text-red-600">
+                  <DropdownMenuItem
+  onClick={async () => {
+    await supabase.auth.signOut();
+  }}
+  className="text-red-600"
+>
+
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
                   </DropdownMenuItem>
