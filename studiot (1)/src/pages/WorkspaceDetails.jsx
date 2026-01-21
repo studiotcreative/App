@@ -53,7 +53,7 @@ export default function WorkspaceDetails() {
   const queryClient = useQueryClient();
   
   const urlParams = new URLSearchParams(window.location.search);
-  const workspaceId = urlParams.get('id');
+  const workspaceId = urlParams.get('workspaceId') || urlParams.get('id');
 
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [showMemberDialog, setShowMemberDialog] = useState(false);
@@ -84,7 +84,7 @@ export default function WorkspaceDetails() {
   });
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ['workspace-accounts', workspaceId],
+    queryKey: ['accounts', workspaceId],
     queryFn: async () => {
   const { data, error } = await supabase
     .from('social_accounts')
@@ -98,7 +98,7 @@ export default function WorkspaceDetails() {
   });
 
   const { data: members = [] } = useQuery({
-    queryKey: ['workspace-members', workspaceId],
+    queryKey: ['members', workspaceId],
     queryFn: async () => {
   const { data, error } = await supabase
     .from('workspace_members')
@@ -113,6 +113,7 @@ export default function WorkspaceDetails() {
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
+    enabled: !!workspaceId && isAdmin(),
     queryFn: async () => {
   const { data, error } = await supabase
     .from('profiles')
@@ -133,7 +134,7 @@ export default function WorkspaceDetails() {
   if (error) throw error;
 },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts', workspaceId] });
       setShowAccountDialog(false);
       resetAccountForm();
       toast.success('Account added');
@@ -146,7 +147,7 @@ export default function WorkspaceDetails() {
   if (error) throw error;
 },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
       setShowAccountDialog(false);
       resetAccountForm();
       toast.success('Account updated');
