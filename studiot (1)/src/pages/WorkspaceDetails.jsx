@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { 
@@ -71,33 +71,67 @@ export default function WorkspaceDetails() {
 
   const { data: workspace, isLoading: loadingWorkspace } = useQuery({
     queryKey: ['workspace', workspaceId],
-    queryFn: () => base44.entities.Workspace.filter({ id: workspaceId }).then(r => r[0]),
+    queryFn: async () => {
+  const { data, error } = await supabase
+    .from('workspaces')
+    .select('*')
+    .eq('id', workspaceId)
+    .single();
+  if (error) throw error;
+  return data;
+},
     enabled: !!workspaceId
   });
 
   const { data: accounts = [] } = useQuery({
     queryKey: ['workspace-accounts', workspaceId],
-    queryFn: () => base44.entities.SocialAccount.filter({ workspace_id: workspaceId }),
+    queryFn: async () => {
+  const { data, error } = await supabase
+    .from('social_accounts')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+},
     enabled: !!workspaceId
   });
 
   const { data: members = [] } = useQuery({
     queryKey: ['workspace-members', workspaceId],
-    queryFn: () => base44.entities.WorkspaceMember.filter({ workspace_id: workspaceId }),
+    queryFn: async () => {
+  const { data, error } = await supabase
+    .from('workspace_members')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+},
     enabled: !!workspaceId
   });
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list()
+    queryFn: async () => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('email, full_name, role')
+    .order('email');
+  if (error) throw error;
+  return data || [];
+}
   });
 
   // Account mutations
   const createAccountMutation = useMutation({
-    mutationFn: (data) => base44.entities.SocialAccount.create({
-      ...data,
-      workspace_id: workspaceId
-    }),
+    mutationFn: async (data) => {
+  const { error } = await supabase.from('social_accounts').insert({
+    ...data,
+    workspace_id: workspaceId
+  });
+  if (error) throw error;
+},
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
       setShowAccountDialog(false);
@@ -107,7 +141,10 @@ export default function WorkspaceDetails() {
   });
 
   const updateAccountMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.SocialAccount.update(id, data),
+    mutationFn: async ({ id, data }) => {
+  const { error } = await supabase.from('social_accounts').update(data).eq('id', id);
+  if (error) throw error;
+},
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
       setShowAccountDialog(false);
@@ -117,7 +154,10 @@ export default function WorkspaceDetails() {
   });
 
   const deleteAccountMutation = useMutation({
-    mutationFn: (id) => base44.entities.SocialAccount.delete(id),
+    mutationFn: async (id) => {
+  const { error } = await supabase.from('social_accounts').delete().eq('id', id);
+  if (error) throw error;
+},
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
       toast.success('Account removed');
@@ -126,10 +166,13 @@ export default function WorkspaceDetails() {
 
   // Member mutations
   const createMemberMutation = useMutation({
-    mutationFn: (data) => base44.entities.WorkspaceMember.create({
-      ...data,
-      workspace_id: workspaceId
-    }),
+    mutationFn: async (data) => {
+  const { error } = await supabase.from('workspace_members').insert({
+    ...data,
+    workspace_id: workspaceId
+  });
+  if (error) throw error;
+},
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
       setShowMemberDialog(false);
@@ -139,7 +182,10 @@ export default function WorkspaceDetails() {
   });
 
   const deleteMemberMutation = useMutation({
-    mutationFn: (id) => base44.entities.WorkspaceMember.delete(id),
+    mutationFn: async (id) => {
+  const { error } = await supabase.from('workspace_members').delete().eq('id', id);
+  if (error) throw error;
+},
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
       toast.success('Member removed');
@@ -192,16 +238,9 @@ export default function WorkspaceDetails() {
     const userExists = allUsers.some(u => u.email === memberForm.user_email);
     
     if (!userExists) {
-      try {
-        // Invite user to the app first
-        const appRole = memberForm.role === 'account_manager' ? 'admin' : 'user';
-        await base44.users.inviteUser(memberForm.user_email, appRole);
-        toast.success(`Invitation sent to ${memberForm.user_email}`);
-      } catch (error) {
-        toast.error('Failed to send invitation');
-        return;
-      }
-    }
+  toast.error('That user must sign up first. Ask them to create an account, then add them here.');
+  return;
+}
     
     // Add user to workspace
     createMemberMutation.mutate(memberForm);
