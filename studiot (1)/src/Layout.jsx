@@ -28,7 +28,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from "@/components/ui/skeleton";
 
 function LayoutContent({ children, currentPageName }) {
-  const { user, userRole, loading, isAdmin, isClient } = useAuth();
+  const { user, globalRole, loading, isAdmin, isClient, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Optional: keep if you need it later; otherwise you can delete this query.
@@ -45,9 +45,9 @@ function LayoutContent({ children, currentPageName }) {
     enabled: !loading && isAdmin()
   });
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/';
+  const handleSignOut = async () => {
+    await signOut(); // from useAuth()
+    window.location.href = "/";
   };
 
   if (loading) {
@@ -148,7 +148,7 @@ function LayoutContent({ children, currentPageName }) {
               {/* Role Badge */}
               <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
                 <span className="text-xs font-medium text-slate-600 capitalize">
-                  {userRole?.replace('_', ' ')}
+                  {globalRole?.replace('_', ' ')}
                 </span>
               </div>
 
@@ -173,7 +173,7 @@ function LayoutContent({ children, currentPageName }) {
                     <p className="text-xs text-slate-500">{user?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={signOut} className="text-red-600">
+                  <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
                   </DropdownMenuItem>
