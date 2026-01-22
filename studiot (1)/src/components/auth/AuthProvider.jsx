@@ -11,6 +11,9 @@ export function AuthProvider({ children }) {
   const [memberships, setMemberships] = useState([]); // public.workspace_members rows
   const [loading, setLoading] = useState(true);
 
+  console.log('AUTH USER', user);
+  console.log('PROFILE ROLE', profile?.role);
+
   // boot + listen
   useEffect(() => {
     let isMounted = true;
