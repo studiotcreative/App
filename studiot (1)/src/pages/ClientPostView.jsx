@@ -1,48 +1,65 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/components/auth/AuthProvider';
-import { format, parseISO } from 'date-fns';
-import { 
-  ArrowLeft, 
-  Calendar, 
-  Clock, 
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { supabase } from "@/api/supabaseClient";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { format, parseISO } from "date-fns";
+import {
+  ArrowLeft,
+  Calendar,
+  Clock,
   Hash,
   MessageSquare,
-  Image,
   Video,
   ChevronLeft,
-  ChevronRight
-} from 'lucide-react';
+  ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import StatusBadge from '@/components/ui/StatusBadge';
-import PlatformIcon from '@/components/ui/PlatformIcon';
-import PostComments from '@/components/posts/PostComments';
-import PostApproval from '@/components/posts/PostApproval';
+import StatusBadge from "@/components/ui/StatusBadge";
+import PlatformIcon from "@/components/ui/PlatformIcon";
+import PostComments from "@/components/posts/PostComments";
+import PostApproval from "@/components/posts/PostApproval";
 
 export default function ClientPostView() {
   const navigate = useNavigate();
-  const { canApprove } = useAuth();
   const [currentAsset, setCurrentAsset] = React.useState(0);
-  
+
   const urlParams = new URLSearchParams(window.location.search);
-  const postId = urlParams.get('id');
+  const postId = urlParams.get("id");
 
   const { data: post, isLoading: loadingPost, refetch } = useQuery({
-    queryKey: ['post', postId],
-    queryFn: () => base44.entities.Post.filter({ id: postId }).then(r => r[0]),
-    enabled: !!postId
+    queryKey: ["post", postId],
+    enabled: !!postId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select(
+          "id, workspace_id, social_account_id, platform, scheduled_date, scheduled_time, status, approval_status, caption, hashtags, first_comment, client_notes, asset_urls, asset_types"
+        )
+        .eq("id", postId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
   });
 
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => base44.entities.SocialAccount.list()
-  });
+  const { data: account } = useQuery({
+    queryKey: ["social_account", post?.social_account_id],
+    enabled: !!post?.social_account_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("social_accounts")
+        .select("id, handle, platform")
+        .eq("id", post.social_account_id)
+        .single();
 
-  const account = accounts.find(a => a.id === post?.social_account_id);
+      if (error) throw error;
+      return data;
+    },
+  });
 
   if (loadingPost) {
     return (
@@ -63,13 +80,13 @@ export default function ClientPostView() {
 
   const nextAsset = () => {
     if (post.asset_urls && currentAsset < post.asset_urls.length - 1) {
-      setCurrentAsset(prev => prev + 1);
+      setCurrentAsset((prev) => prev + 1);
     }
   };
 
   const prevAsset = () => {
     if (currentAsset > 0) {
-      setCurrentAsset(prev => prev - 1);
+      setCurrentAsset((prev) => prev - 1);
     }
   };
 
@@ -78,18 +95,14 @@ export default function ClientPostView() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate(-1)}
-          >
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
             <div className="flex items-center gap-2">
               <PlatformIcon platform={post.platform} size="sm" />
               <span className="text-lg font-semibold text-slate-900">
-                @{account?.handle || 'Unknown'}
+                @{account?.handle || "Unknown"}
               </span>
             </div>
             <p className="text-sm text-slate-500">Post Details</p>
@@ -105,20 +118,20 @@ export default function ClientPostView() {
           <div className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden">
             {post.asset_urls?.length > 0 ? (
               <>
-                {post.asset_types?.[currentAsset] === 'video' ? (
-                  <video 
-                    src={post.asset_urls[currentAsset]} 
-                    controls 
+                {post.asset_types?.[currentAsset] === "video" ? (
+                  <video
+                    src={post.asset_urls[currentAsset]}
+                    controls
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <img 
-                    src={post.asset_urls[currentAsset]} 
-                    alt="" 
+                  <img
+                    src={post.asset_urls[currentAsset]}
+                    alt=""
                     className="w-full h-full object-cover"
                   />
                 )}
-                
+
                 {/* Navigation arrows */}
                 {post.asset_urls.length > 1 && (
                   <>
@@ -140,7 +153,7 @@ export default function ClientPostView() {
                     >
                       <ChevronRight className="w-4 h-4" />
                     </Button>
-                    
+
                     {/* Dots indicator */}
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
                       {post.asset_urls.map((_, idx) => (
@@ -148,7 +161,7 @@ export default function ClientPostView() {
                           key={idx}
                           onClick={() => setCurrentAsset(idx)}
                           className={`w-2 h-2 rounded-full transition-colors ${
-                            idx === currentAsset ? 'bg-white' : 'bg-white/50'
+                            idx === currentAsset ? "bg-white" : "bg-white/50"
                           }`}
                         />
                       ))}
@@ -171,12 +184,12 @@ export default function ClientPostView() {
                   key={idx}
                   onClick={() => setCurrentAsset(idx)}
                   className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                    idx === currentAsset 
-                      ? 'border-violet-500 ring-2 ring-violet-200' 
-                      : 'border-transparent opacity-70 hover:opacity-100'
+                    idx === currentAsset
+                      ? "border-violet-500 ring-2 ring-violet-200"
+                      : "border-transparent opacity-70 hover:opacity-100"
                   }`}
                 >
-                  {post.asset_types?.[idx] === 'video' ? (
+                  {post.asset_types?.[idx] === "video" ? (
                     <div className="w-full h-full bg-slate-200 flex items-center justify-center">
                       <Video className="w-4 h-4 text-slate-500" />
                     </div>
@@ -202,7 +215,7 @@ export default function ClientPostView() {
                 <>
                   <div className="flex items-center gap-2 text-slate-700">
                     <Calendar className="w-4 h-4 text-slate-400" />
-                    {format(parseISO(post.scheduled_date), 'EEEE, MMMM d, yyyy')}
+                    {format(parseISO(post.scheduled_date), "EEEE, MMMM d, yyyy")}
                   </div>
                   {post.scheduled_time && (
                     <div className="flex items-center gap-2 text-slate-700">
@@ -220,9 +233,7 @@ export default function ClientPostView() {
           {/* Caption */}
           <div className="bg-white rounded-xl border border-slate-200/60 p-5">
             <h3 className="text-sm font-medium text-slate-700 mb-3">Caption</h3>
-            <p className="text-slate-700 whitespace-pre-wrap">
-              {post.caption || 'No caption'}
-            </p>
+            <p className="text-slate-700 whitespace-pre-wrap">{post.caption || "No caption"}</p>
           </div>
 
           {/* Hashtags */}
@@ -232,9 +243,7 @@ export default function ClientPostView() {
                 <Hash className="w-4 h-4" />
                 Hashtags
               </h3>
-              <p className="text-blue-600">
-                {post.hashtags}
-              </p>
+              <p className="text-blue-600">{post.hashtags}</p>
             </div>
           )}
 
@@ -245,9 +254,7 @@ export default function ClientPostView() {
                 <MessageSquare className="w-4 h-4" />
                 First Comment
               </h3>
-              <p className="text-slate-700">
-                {post.first_comment}
-              </p>
+              <p className="text-slate-700">{post.first_comment}</p>
             </div>
           )}
 
@@ -255,9 +262,7 @@ export default function ClientPostView() {
           {post.client_notes && (
             <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
               <h3 className="text-sm font-medium text-blue-700 mb-3">Notes from the team</h3>
-              <p className="text-blue-800">
-                {post.client_notes}
-              </p>
+              <p className="text-blue-800">{post.client_notes}</p>
             </div>
           )}
 
