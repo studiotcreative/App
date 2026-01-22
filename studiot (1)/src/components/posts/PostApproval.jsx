@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { format, parseISO } from 'date-fns';
@@ -29,76 +29,76 @@ export default function PostApproval({ post, onUpdate }) {
   const [rejectReason, setRejectReason] = useState('');
 
   const updateMutation = useMutation({
-    mutationFn: (data) => base44.entities.Post.update(post.id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['posts'] });
-      toast.success('Post updated');
-      onUpdate?.();
-    }
-  });
+  mutationFn: async ({ status, reason }) => {
+    const { error } = await supabase.rpc('approve_post', {
+      p_post_id: post.id,
+      p_status: status,     // "approved" | "changes_requested"
+      p_reason: reason ?? null
+    });
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['posts'] });
+    queryClient.invalidateQueries({ queryKey: ['comments', post.id] });
+    toast.success('Post updated');
+    onUpdate?.();
+  }
+});
 
   const createComment = useMutation({
-    mutationFn: (data) => base44.entities.Comment.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', post.id] });
-    }
-  });
+  mutationFn: async (data) => {
+    const { error } = await supabase.from('comments').insert([data]);
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['comments', post.id] });
+  }
+});
 
   const createAuditLog = async (action, details) => {
-    await base44.entities.AuditLog.create({
-      workspace_id: post.workspace_id,
-      entity_type: 'post',
-      entity_id: post.id,
-      action,
-      actor_email: user.email,
-      actor_name: user.full_name,
-      details: JSON.stringify(details)
-    });
-  };
+  const { error } = await supabase.from('audit_logs').insert([{
+    workspace_id: post.workspace_id,
+    entity_type: 'post',
+    entity_id: post.id,
+    action,
+    details
+  }]);
+  if (error) throw error;
+};
 
   const handleApprove = async () => {
-    await updateMutation.mutateAsync({
-      status: 'approved',
-      approval_status: 'approved',
-      approved_by: user.email,
-      approved_at: new Date().toISOString()
-    });
-    
-    await createAuditLog('approved', { 
-      action: 'Post approved',
-      approved_by: user.full_name 
-    });
-    
-    toast.success('Post approved!');
-  };
+  await updateMutation.mutateAsync({ status: 'approved', reason: null });
+
+  await createAuditLog('approved', {
+    action: 'Post approved',
+    approved_by: user?.email
+  });
+
+  toast.success('Post approved!');
+};
 
   const handleRequestChanges = async () => {
-    await updateMutation.mutateAsync({
-      status: 'sent_to_client',
-      approval_status: 'changes_requested'
-    });
+  await updateMutation.mutateAsync({ status: 'changes_requested', reason: rejectReason || null });
 
-    if (rejectReason) {
-      await createComment.mutateAsync({
-        post_id: post.id,
-        workspace_id: post.workspace_id,
-        author_email: user.email,
-        author_name: user.full_name,
-        content: `Changes requested: ${rejectReason}`,
-        is_internal: false
-      });
-    }
-
-    await createAuditLog('rejected', { 
-      action: 'Changes requested',
-      reason: rejectReason,
-      rejected_by: user.full_name 
+  if (rejectReason) {
+    await createComment.mutateAsync({
+      post_id: post.id,
+      workspace_id: post.workspace_id,
+      content: `Changes requested: ${rejectReason}`,
+      is_internal: false
     });
-    
-    setShowRejectDialog(false);
-    setRejectReason('');
-    toast.info('Changes requested');
-  };
+  }
+
+  await createAuditLog('changes_requested', {
+    action: 'Changes requested',
+    reason: rejectReason || null,
+    requested_by: user?.email
+  });
+
+  setShowRejectDialog(false);
+  setRejectReason('');
+  toast.info('Changes requested');
+};
 
   // Only show for client facing statuses
   if (post.status !== 'sent_to_client' && !isClient()) {
