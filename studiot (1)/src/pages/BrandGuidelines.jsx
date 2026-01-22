@@ -1,54 +1,86 @@
-import React from 'react';
-import { useAuth } from '@/components/auth/AuthProvider';
-import { base44 } from '@/api/base44Client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/api/supabaseClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import BrandGuidelinesForm from '@/components/brand/BrandGuidelinesForm';
-import { Book, ArrowLeft } from 'lucide-react';
-import { createPageUrl } from '@/utils';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import BrandGuidelinesForm from "@/components/brand/BrandGuidelinesForm";
+import { Book, ArrowLeft } from "lucide-react";
+import { createPageUrl } from "@/utils";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 export default function BrandGuidelines() {
-  const { user, isAdmin, workspaceMemberships } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   const urlParams = new URLSearchParams(window.location.search);
-  const workspaceId = urlParams.get('workspace');
+  const workspaceId = urlParams.get("workspace");
 
   const { data: workspace, isLoading: loadingWorkspace } = useQuery({
-    queryKey: ['workspace', workspaceId],
+    queryKey: ["workspace", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
-      const workspaces = await base44.entities.Workspace.list();
-      return workspaces.find(w => w.id === workspaceId);
+      const { data, error } = await supabase
+        .from("workspaces")
+        .select("id, name")
+        .eq("id", workspaceId)
+        .single();
+
+      if (error) throw error;
+      return data;
     },
-    enabled: !!workspaceId
   });
 
   const { data: guidelines, isLoading: loadingGuidelines } = useQuery({
-    queryKey: ['brandGuidelines', workspaceId],
+    queryKey: ["brandGuidelines", workspaceId],
+    enabled: !!workspaceId,
     queryFn: async () => {
-      const all = await base44.entities.BrandGuidelines.filter({ workspace_id: workspaceId });
-      return all[0] || null;
+      const { data, error } = await supabase
+        .from("brand_guidelines")
+        .select("id, workspace_id, data")
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Map DB shape -> form shape (form expects the actual fields)
+      return data ? { id: data.id, ...data.data } : null;
     },
-    enabled: !!workspaceId
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (data) => {
-      const payload = { ...data, workspace_id: workspaceId };
+    mutationFn: async (formData) => {
+      if (!workspaceId) throw new Error("Missing workspaceId");
+      if (!user?.id) throw new Error("Not authenticated");
+
+      const payload = {
+        workspace_id: workspaceId,
+        data: formData, // store entire form as jsonb
+        updated_by: user.id,
+      };
+
       if (guidelines?.id) {
-        return base44.entities.BrandGuidelines.update(guidelines.id, payload);
-      } else {
-        return base44.entities.BrandGuidelines.create(payload);
+        const { error } = await supabase
+          .from("brand_guidelines")
+          .update(payload)
+          .eq("id", guidelines.id);
+        if (error) throw error;
+        return;
       }
+
+      const { error } = await supabase.from("brand_guidelines").insert([payload]);
+      if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['brandGuidelines', workspaceId] });
-      toast.success('Brand guidelines saved successfully');
-    }
+      queryClient.invalidateQueries({ queryKey: ["brandGuidelines", workspaceId] });
+      toast.success("Brand guidelines saved successfully");
+    },
+    onError: (err) => {
+      console.error(err);
+      toast.error("Failed to save brand guidelines");
+    },
   });
 
   if (!workspaceId) {
@@ -56,7 +88,7 @@ export default function BrandGuidelines() {
       <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600">No workspace selected</p>
-          <Button onClick={() => navigate(createPageUrl('Workspaces'))} className="mt-4">
+          <Button onClick={() => navigate(createPageUrl("Workspaces"))} className="mt-4">
             Go to Workspaces
           </Button>
         </div>
@@ -87,6 +119,7 @@ export default function BrandGuidelines() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Workspace
           </Button>
+
           <div className="flex items-center gap-3">
             <div className="bg-gradient-to-br from-purple-500 to-pink-500 p-3 rounded-xl">
               <Book className="w-6 h-6 text-white" />
