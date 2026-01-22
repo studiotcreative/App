@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { format, parseISO } from 'date-fns';
@@ -68,14 +68,30 @@ export default function PostForm({
   const [copied, setCopied] = useState(null);
 
   const { data: allAccounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => base44.entities.SocialAccount.list()
-  });
+  queryKey: ['accounts'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('social_accounts')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+});
 
   const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => base44.entities.Workspace.list()
-  });
+  queryKey: ['workspaces'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('workspaces')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+});
 
   // Filter accounts based on role
   const accounts = React.useMemo(() => {
@@ -122,32 +138,60 @@ export default function PostForm({
   };
 
   const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    
-    setUploading(true);
-    try {
-      const uploadPromises = files.map(file => 
-        base44.integrations.Core.UploadFile({ file })
-      );
-      const results = await Promise.all(uploadPromises);
-      
-      const newUrls = results.map(r => r.file_url);
-      const newTypes = files.map(f => f.type.startsWith('video') ? 'video' : 'image');
-      
-      setFormData(prev => ({
-        ...prev,
-        asset_urls: [...prev.asset_urls, ...newUrls],
-        asset_types: [...prev.asset_types, ...newTypes]
-      }));
-      
-      toast.success(`${files.length} file(s) uploaded`);
-    } catch (error) {
-      toast.error('Failed to upload files');
-    } finally {
-      setUploading(false);
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+
+  setUploading(true);
+
+  try {
+    const workspaceId = formData.workspace_id || selectedAccount?.workspace_id;
+    if (!workspaceId) {
+      toast.error('Select an account first (workspace needed for upload path)');
+      return;
     }
-  };
+
+    const safeUUID = () =>
+      (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    const uploadResults = [];
+    for (const file of files) {
+      const filePath = `${workspaceId}/${post?.id || "draft"}/${safeUUID()}-${file.name}`;
+
+      const { data: uploaded, error: upErr } = await supabase
+        .storage
+        .from("post_assets")
+        .upload(filePath, file, { upsert: false });
+
+      if (upErr) throw upErr;
+
+      // Public bucket URL
+      const { data: pub } = supabase
+        .storage
+        .from("post_assets")
+        .getPublicUrl(uploaded.path);
+
+      uploadResults.push({
+        url: pub.publicUrl,
+        type: file.type.startsWith("video") ? "video" : "image",
+      });
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      asset_urls: [...prev.asset_urls, ...uploadResults.map(r => r.url)],
+      asset_types: [...prev.asset_types, ...uploadResults.map(r => r.type)],
+    }));
+
+    toast.success(`${files.length} file(s) uploaded`);
+  } catch (error) {
+    console.error(error);
+    toast.error(error?.message || 'Failed to upload files');
+  } finally {
+    setUploading(false);
+    // allow re-uploading same file name
+    e.target.value = '';
+  }
+};
 
   const removeAsset = (index) => {
     setFormData(prev => ({
