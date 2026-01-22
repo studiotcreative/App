@@ -1,60 +1,110 @@
-import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/components/auth/AuthProvider';
-import { 
-  Search,
-  UserPlus,
-  Shield,
-  Users,
-  Briefcase
-} from 'lucide-react';
-import { Button } from "@/components/ui/button";
+import React, { useState, useMemo } from "react";
+import { supabase } from "@/api/supabaseClient";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Search, Shield, Users, Briefcase } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import PlatformIcon from '@/components/ui/PlatformIcon';
+import PlatformIcon from "@/components/ui/PlatformIcon";
 
 export default function Team() {
-  const { isAdmin } = useAuth();
-  const [search, setSearch] = useState('');
+  const { isAdmin, loading } = useAuth();
+  const [search, setSearch] = useState("");
 
+  // Users now come from public.profiles
   const { data: users = [], isLoading: loadingUsers } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => base44.entities.User.list()
+    queryKey: ["users"],
+    enabled: !loading && isAdmin(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, email, full_name, role, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => base44.entities.SocialAccount.list()
+  // Workspaces count for stats
+  const { data: workspaces = [], isLoading: loadingWorkspaces } = useQuery({
+    queryKey: ["workspaces"],
+    enabled: !loading && isAdmin(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("workspaces")
+        .select("id, name, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => base44.entities.Workspace.list()
+  // Accounts list (RLS allows admin to see all; others restricted anyway)
+  const { data: accounts = [], isLoading: loadingAccounts } = useQuery({
+    queryKey: ["accounts"],
+    enabled: !loading && isAdmin(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("social_accounts")
+        .select("id, workspace_id, platform, handle, created_at")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  const filteredUsers = users.filter(u => 
-    u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email.toLowerCase().includes(search.toLowerCase())
-  );
+  // Workspace members (to compute account_manager roles + assignments)
+  const { data: members = [], isLoading: loadingMembers } = useQuery({
+    queryKey: ["workspace_members"],
+    enabled: !loading && isAdmin(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("workspace_members")
+        .select("workspace_id, user_id, role, created_at");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
-  const getInitials = (name) => {
-    return name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
-  };
+  const filteredUsers = useMemo(() => {
+    const q = search.toLowerCase();
+    return users.filter(
+      (u) =>
+        (u.full_name || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q)
+    );
+  }, [users, search]);
 
-  const getAssignedAccounts = (email) => {
-    return accounts.filter(a => a.assigned_manager_email === email);
-  };
+  const getInitials = (name) =>
+    name?.split(" ").map((n) => n[0]).join("").toUpperCase() || "?";
 
   const getRoleBadge = (role) => {
-    if (role === 'admin') {
+    if (role === "admin") {
       return <Badge className="bg-violet-100 text-violet-700">Admin</Badge>;
     }
     return <Badge className="bg-slate-100 text-slate-700">User</Badge>;
   };
+
+  // A user is an "Account Manager" if they have workspace_members.role = 'account_manager' in at least one workspace
+  const accountManagerUserIds = useMemo(() => {
+    return new Set(members.filter((m) => m.role === "account_manager").map((m) => m.user_id));
+  }, [members]);
+
+  // Assign accounts to a user if they are account_manager in that workspace
+  const getAssignedAccounts = (userId) => {
+    const managedWorkspaceIds = new Set(
+      members
+        .filter((m) => m.user_id === userId && m.role === "account_manager")
+        .map((m) => m.workspace_id)
+    );
+    return accounts.filter((a) => managedWorkspaceIds.has(a.workspace_id));
+  };
+
+  const isLoadingAny =
+    loading || loadingUsers || loadingWorkspaces || loadingAccounts || loadingMembers;
 
   if (!isAdmin()) {
     return (
@@ -70,9 +120,7 @@ export default function Team() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Team</h1>
-          <p className="text-slate-500 mt-1">
-            {users.length} team members
-          </p>
+          <p className="text-slate-500 mt-1">{users.length} team members</p>
         </div>
       </div>
 
@@ -109,7 +157,7 @@ export default function Team() {
               <div>
                 <p className="text-sm text-slate-500">Admins</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {users.filter(u => u.role === 'admin').length}
+                  {users.filter((u) => u.role === "admin").length}
                 </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
@@ -125,7 +173,7 @@ export default function Team() {
               <div>
                 <p className="text-sm text-slate-500">Account Managers</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {new Set(accounts.map(a => a.assigned_manager_email)).size}
+                  {accountManagerUserIds.size}
                 </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
@@ -151,48 +199,46 @@ export default function Team() {
       </div>
 
       {/* Team List */}
-      {loadingUsers ? (
+      {isLoadingAny ? (
         <div className="space-y-4">
-          {[1, 2, 3].map(i => (
+          {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200/60 overflow-hidden">
           <div className="divide-y divide-slate-100">
-            {filteredUsers.map(user => {
-              const assignedAccounts = getAssignedAccounts(user.email);
-              
+            {filteredUsers.map((u) => {
+              const assignedAccounts = getAssignedAccounts(u.id);
+
               return (
-                <div 
-                  key={user.id}
-                  className="p-4 hover:bg-slate-50 transition-colors"
-                >
+                <div key={u.id} className="p-4 hover:bg-slate-50 transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <Avatar className="w-12 h-12">
                         <AvatarFallback className="bg-gradient-to-br from-violet-500 to-indigo-500 text-white font-medium">
-                          {getInitials(user.full_name)}
+                          {getInitials(u.full_name)}
                         </AvatarFallback>
                       </Avatar>
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium text-slate-900">
-                            {user.full_name || 'No name'}
+                            {u.full_name || "No name"}
                           </h3>
-                          {getRoleBadge(user.role)}
+                          {getRoleBadge(u.role)}
+                          {accountManagerUserIds.has(u.id) && (
+                            <Badge className="bg-blue-100 text-blue-700">Account Manager</Badge>
+                          )}
                         </div>
-                        <p className="text-sm text-slate-500">{user.email}</p>
+                        <p className="text-sm text-slate-500">{u.email}</p>
                       </div>
                     </div>
 
                     {assignedAccounts.length > 0 && (
                       <div className="hidden md:flex items-center gap-2">
-                        <span className="text-sm text-slate-500 mr-2">
-                          Assigned accounts:
-                        </span>
-                        {assignedAccounts.slice(0, 3).map(account => (
-                          <div 
+                        <span className="text-sm text-slate-500 mr-2">Assigned accounts:</span>
+                        {assignedAccounts.slice(0, 3).map((account) => (
+                          <div
                             key={account.id}
                             className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-full text-xs"
                           >
@@ -212,8 +258,8 @@ export default function Team() {
                   {/* Mobile: Assigned accounts */}
                   {assignedAccounts.length > 0 && (
                     <div className="md:hidden flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100">
-                      {assignedAccounts.map(account => (
-                        <div 
+                      {assignedAccounts.map((account) => (
+                        <div
                           key={account.id}
                           className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-full text-xs"
                         >
