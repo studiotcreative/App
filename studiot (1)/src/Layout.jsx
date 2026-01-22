@@ -1,19 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { supabase } from '@/api/supabaseClient';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  Calendar, 
-  LayoutGrid, 
-  Settings, 
-  Users, 
+import {
+  Calendar,
+  LayoutGrid,
+  Settings,
+  Users,
   Building2,
   ChevronDown,
   Menu,
-  X,
   LogOut,
-  Bell,
   Sparkles
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -30,21 +28,27 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from "@/components/ui/skeleton";
 
 function LayoutContent({ children, currentPageName }) {
-  const { user, userRole, loading, isAdmin, isClient, assignedAccounts, workspaceMemberships } = useAuth();
+  const { user, userRole, loading, isAdmin, isClient } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { data: workspaces = [] } = useQuery({
-  queryKey: ['workspaces'],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('workspaces')
-      .select("id, name, created_at, created_by")
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data ?? [];
-  },
-  enabled: !loading && isAdmin()
-});
+  // Optional: keep if you need it later; otherwise you can delete this query.
+  useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspaces')
+        .select("id, name, created_at, created_by")
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !loading && isAdmin()
+  });
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/';
+  };
 
   if (loading) {
     return (
@@ -61,7 +65,7 @@ function LayoutContent({ children, currentPageName }) {
 
   const getNavItems = () => {
     const items = [];
-    
+
     if (isAdmin()) {
       items.push(
         { label: 'Dashboard', icon: LayoutGrid, href: createPageUrl('Dashboard') },
@@ -82,12 +86,15 @@ function LayoutContent({ children, currentPageName }) {
         { label: 'Calendar', icon: Calendar, href: createPageUrl('Calendar') }
       );
     }
-    
+
     return items;
   };
 
   const navItems = getNavItems();
-  const initials = user?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U';
+  const initials =
+    user?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase() ||
+    user?.email?.[0]?.toUpperCase() ||
+    'U';
 
   const NavLinks = () => (
     <nav className="flex flex-col lg:flex-row gap-1 lg:gap-0.5">
@@ -99,8 +106,8 @@ function LayoutContent({ children, currentPageName }) {
             to={item.href}
             onClick={() => setMobileOpen(false)}
             className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
-              ${isActive 
-                ? 'bg-slate-900 text-white' 
+              ${isActive
+                ? 'bg-slate-900 text-white'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
           >
@@ -120,13 +127,16 @@ function LayoutContent({ children, currentPageName }) {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-8">
-              <Link to={createPageUrl(isClient() ? 'ClientCalendar' : 'Dashboard')} className="flex items-center gap-2.5">
+              <Link
+                to={createPageUrl(isClient() ? 'ClientCalendar' : 'Dashboard')}
+                className="flex items-center gap-2.5"
+              >
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
                   <Sparkles className="w-5 h-5 text-white" />
                 </div>
                 <span className="font-semibold text-lg text-slate-900 hidden sm:block">Studio T</span>
               </Link>
-              
+
               {/* Desktop Nav */}
               <div className="hidden lg:block">
                 <NavLinks />
@@ -152,18 +162,18 @@ function LayoutContent({ children, currentPageName }) {
                       </AvatarFallback>
                     </Avatar>
                     <span className="hidden sm:block text-sm font-medium text-slate-700">
-                      {user?.full_name}
+                      {user?.full_name || user?.email}
                     </span>
                     <ChevronDown className="w-4 h-4 text-slate-400" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <div className="px-3 py-2">
-                    <p className="text-sm font-medium text-slate-900">{user?.full_name}</p>
+                    <p className="text-sm font-medium text-slate-900">{user?.full_name || user?.email}</p>
                     <p className="text-xs text-slate-500">{user?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => signOut()} className="text-red-600">
+                  <DropdownMenuItem onClick={signOut} className="text-red-600">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
                   </DropdownMenuItem>
@@ -199,8 +209,8 @@ function LayoutContent({ children, currentPageName }) {
 export default function Layout({ children, currentPageName }) {
   return (
     <LayoutContent currentPageName={currentPageName}>
-        {children}
-      </LayoutContent>
+      {children}
     </LayoutContent>
   );
 }
+
