@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { format, parseISO } from 'date-fns';
@@ -17,26 +17,51 @@ export default function PostComments({ postId, workspaceId }) {
   const [isInternal, setIsInternal] = useState(false);
 
   const { data: comments = [], isLoading } = useQuery({
-    queryKey: ['comments', postId],
-    queryFn: () => base44.entities.Comment.filter({ post_id: postId })
-  });
+  queryKey: ['comments', postId],
+  enabled: !!postId,
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+});
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.Comment.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', postId] });
-      setNewComment('');
-      toast.success('Comment added');
-    }
-  });
+  mutationFn: async (data) => {
+    const { data: created, error } = await supabase
+      .from('comments')
+      .insert([data])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return created;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['comments', postId] });
+    setNewComment('');
+    toast.success('Comment added');
+  }
+});
 
   const toggleResolved = useMutation({
-    mutationFn: ({ id, resolved }) => 
-      base44.entities.Comment.update(id, { is_resolved: resolved }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['comments', postId] });
-    }
-  });
+  mutationFn: async ({ id, resolved }) => {
+    const { error } = await supabase
+      .from('comments')
+      .update({ is_resolved: resolved })
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['comments', postId] });
+  }
+});
 
   const handleSubmit = (e) => {
     e.preventDefault();
