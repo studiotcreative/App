@@ -8,15 +8,20 @@ export default function PageNotFound({}) {
     const pageName = location.pathname.substring(1);
 
     const { data: authData, isFetched } = useQuery({
-  queryKey: ['user'],
+  queryKey: ['user-and-role'],
   queryFn: async () => {
     const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return { user: null, role: null, isAuthenticated: false };
 
-    if (error) {
-      return { user: null, isAuthenticated: false };
-    }
+    const { data: profile, error: pErr } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
 
-    return { user, isAuthenticated: !!user };
+    if (pErr) return { user, role: null, isAuthenticated: true };
+
+    return { user, role: profile.role, isAuthenticated: true };
   }
 });
     
@@ -41,7 +46,7 @@ export default function PageNotFound({}) {
                     </div>
                     
                     {/* Admin Note */}
-                    {isFetched && authData.isAuthenticated && authData.user?.role === 'admin' && (
+                    {isFetched && authData.isAuthenticated && authData.role === 'admin' && (
                         <div className="mt-8 p-4 bg-slate-100 rounded-lg border border-slate-200">
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center mt-0.5">
