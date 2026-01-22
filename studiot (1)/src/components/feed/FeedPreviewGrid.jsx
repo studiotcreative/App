@@ -34,15 +34,14 @@ export default function FeedPreviewGrid({
 
     const results = await Promise.all(updates);
 
-    const error = results.find(r => r.error)?.error;
+    const error = results.find((r) => r.error)?.error;
     if (error) throw error;
-  }
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["posts"] });
+    toast.success("Order updated");
+  },
 });
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['posts'] });
-      toast.success('Order updated');
-    }
-  });
 
   const handleDragEnd = (result) => {
     if (!result.destination || isReadOnly) return;
