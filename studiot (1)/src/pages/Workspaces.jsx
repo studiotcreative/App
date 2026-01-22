@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient";
-import { useAuth } from "@/lib/AuthContext"; // keep using the same import path
+import { useAuth } from "@/components/auth/AuthProvider"; // keep using the same import path
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
