@@ -167,31 +167,37 @@ export default function WorkspaceDetails() {
 
   // Member mutations
   const createMemberMutation = useMutation({
-    mutationFn: async (data) => {
-  const { error } = await supabase.from('workspace_members').insert({
-    ...data,
-    workspace_id: workspaceId
-  });
-  if (error) throw error;
-},
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
-      setShowMemberDialog(false);
-      setMemberForm({ user_email: '', role: 'client_viewer' });
-      toast.success('Member added');
-    }
-  });
+  mutationFn: async ({ user_email, role }) => {
+    const { error } = await supabase.rpc('add_member', {
+      p_workspace_id: workspaceId,
+      p_user_email: user_email,
+      p_role: role
+    });
+
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
+    setShowMemberDialog(false);
+    setMemberForm({ user_email: '', role: 'client_viewer' });
+    toast.success('Member added');
+  }
+});
 
   const deleteMemberMutation = useMutation({
-    mutationFn: async (id) => {
-  const { error } = await supabase.from('workspace_members').delete().eq('id', id);
-  if (error) throw error;
-},
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
-      toast.success('Member removed');
-    }
-  });
+  mutationFn: async (user_email) => {
+    const { error } = await supabase.rpc('remove_member', {
+      p_workspace_id: workspaceId,
+      p_user_email: user_email
+    });
+
+    if (error) throw error;
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
+    toast.success('Member removed');
+  }
+});
 
   const resetAccountForm = () => {
     setEditingAccount(null);
@@ -447,7 +453,7 @@ export default function WorkspaceDetails() {
                           size="icon"
                           onClick={() => {
                             if (confirm('Remove this member?')) {
-                              deleteMemberMutation.mutate(member.id);
+                              deleteMemberMutation.mutate(member.user_email);
                             }
                           }}
                         >
