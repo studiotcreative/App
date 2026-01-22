@@ -1,95 +1,116 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/components/auth/AuthProvider';
-import { ArrowLeft, Grid3X3, List, Plus } from 'lucide-react';
+import React, { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { supabase } from "@/api/supabaseClient";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { ArrowLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import FeedPreviewGrid from '@/components/feed/FeedPreviewGrid';
-import PlatformIcon, { platformConfig } from '@/components/ui/PlatformIcon';
+import FeedPreviewGrid from "@/components/feed/FeedPreviewGrid";
+import PlatformIcon, { platformConfig } from "@/components/ui/PlatformIcon";
 
 export default function FeedPreview() {
   const navigate = useNavigate();
-  const { user, isAdmin, isClient } = useAuth();
-  const [selectedWorkspace, setSelectedWorkspace] = useState('all');
-  const [selectedAccount, setSelectedAccount] = useState('all');
-  const [selectedPlatform, setSelectedPlatform] = useState('instagram');
+  const { loading, isAdmin, isClient } = useAuth();
 
+  const [selectedWorkspace, setSelectedWorkspace] = useState("all");
+  const [selectedAccount, setSelectedAccount] = useState("all");
+  const [selectedPlatform, setSelectedPlatform] = useState("instagram");
+
+  // Admin-only workspace dropdown
   const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => base44.entities.Workspace.list()
+    queryKey: ["workspaces"],
+    enabled: !loading && isAdmin(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("workspaces")
+        .select("id, name")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
+  // Accessible accounts (RLS filters by membership)
   const { data: allAccounts = [], isLoading: loadingAccounts } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => base44.entities.SocialAccount.list()
+    queryKey: ["accounts"],
+    enabled: !loading,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("social_accounts")
+        .select("id, workspace_id, platform, handle, created_at")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
+  // Accessible posts (RLS filters by membership)
   const { data: allPosts = [], isLoading: loadingPosts } = useQuery({
-    queryKey: ['posts'],
-    queryFn: () => base44.entities.Post.list()
+    queryKey: ["posts"],
+    enabled: !loading,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select(
+          "id, workspace_id, social_account_id, platform, status, approval_status, asset_urls, asset_types, order_index"
+        )
+        .order("order_index", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  // Filter accounts based on role
-  const accounts = useMemo(() => {
-    if (isAdmin()) return allAccounts;
-    if (isClient()) {
-      // Get client's workspace
-      return allAccounts; // Will be filtered by workspace later
-    }
-    return allAccounts.filter(acc => 
-      acc.assigned_manager_email === user?.email || 
-      acc.collaborator_emails?.includes(user?.email)
-    );
-  }, [allAccounts, isAdmin, isClient, user]);
-
-  // Filter accounts by workspace and platform
+  // Filter accounts by workspace + platform
   const filteredAccounts = useMemo(() => {
-    let accs = accounts;
-    if (selectedWorkspace !== 'all') {
-      accs = accs.filter(a => a.workspace_id === selectedWorkspace);
+    let accs = allAccounts;
+
+    if (selectedWorkspace !== "all") {
+      accs = accs.filter((a) => a.workspace_id === selectedWorkspace);
     }
-    accs = accs.filter(a => a.platform === selectedPlatform);
+
+    accs = accs.filter((a) => a.platform === selectedPlatform);
+
     return accs;
-  }, [accounts, selectedWorkspace, selectedPlatform]);
+  }, [allAccounts, selectedWorkspace, selectedPlatform]);
 
-  // Filter posts
+  // Filter posts (same behavior)
   const posts = useMemo(() => {
-    let filtered = allPosts.filter(p => p.status !== 'posted');
-    
-    if (selectedAccount !== 'all') {
-      filtered = filtered.filter(p => p.social_account_id === selectedAccount);
-    } else {
-      const accountIds = filteredAccounts.map(a => a.id);
-      filtered = filtered.filter(p => accountIds.includes(p.social_account_id));
-    }
-    
-    // Sort by order_index
-    return filtered.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-  }, [allPosts, selectedAccount, filteredAccounts]);
+    let filtered = allPosts.filter((p) => p.status !== "posted");
 
-  const isLoading = loadingAccounts || loadingPosts;
+    if (selectedWorkspace !== "all") {
+      filtered = filtered.filter((p) => p.workspace_id === selectedWorkspace);
+    }
+
+    if (selectedAccount !== "all") {
+      filtered = filtered.filter((p) => p.social_account_id === selectedAccount);
+    } else {
+      const accountIds = new Set(filteredAccounts.map((a) => a.id));
+      filtered = filtered.filter((p) =>
+        p.social_account_id ? accountIds.has(p.social_account_id) : false
+      );
+    }
+
+    return filtered.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+  }, [allPosts, selectedWorkspace, selectedAccount, filteredAccounts]);
+
+  const isLoadingAny = loading || loadingAccounts || loadingPosts;
 
   return (
     <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate(-1)}
-          >
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -100,9 +121,9 @@ export default function FeedPreview() {
           </div>
         </div>
         {!isClient() && (
-          <Button 
+          <Button
             className="bg-slate-900 hover:bg-slate-800"
-            onClick={() => navigate(createPageUrl('PostEditor'))}
+            onClick={() => navigate(createPageUrl("PostEditor"))}
           >
             <Plus className="w-4 h-4 mr-2" />
             New Post
@@ -111,10 +132,14 @@ export default function FeedPreview() {
       </div>
 
       {/* Platform Tabs */}
-      <Tabs value={selectedPlatform} onValueChange={(v) => {
-        setSelectedPlatform(v);
-        setSelectedAccount('all');
-      }} className="mb-6">
+      <Tabs
+        value={selectedPlatform}
+        onValueChange={(v) => {
+          setSelectedPlatform(v);
+          setSelectedAccount("all");
+        }}
+        className="mb-6"
+      >
         <TabsList className="bg-white border border-slate-200">
           {Object.entries(platformConfig).map(([key, config]) => (
             <TabsTrigger key={key} value={key} className="flex items-center gap-2">
@@ -128,17 +153,22 @@ export default function FeedPreview() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
         {isAdmin() && (
-          <Select value={selectedWorkspace} onValueChange={(v) => {
-            setSelectedWorkspace(v);
-            setSelectedAccount('all');
-          }}>
+          <Select
+            value={selectedWorkspace}
+            onValueChange={(v) => {
+              setSelectedWorkspace(v);
+              setSelectedAccount("all");
+            }}
+          >
             <SelectTrigger className="w-[180px] bg-white">
               <SelectValue placeholder="All Workspaces" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Workspaces</SelectItem>
-              {workspaces.map(w => (
-                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              {workspaces.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -150,7 +180,7 @@ export default function FeedPreview() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Accounts ({filteredAccounts.length})</SelectItem>
-            {filteredAccounts.map(a => (
+            {filteredAccounts.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 @{a.handle}
               </SelectItem>
@@ -160,7 +190,7 @@ export default function FeedPreview() {
       </div>
 
       {/* Feed Preview */}
-      {isLoading ? (
+      {isLoadingAny ? (
         <div className="grid grid-cols-3 gap-1">
           {[...Array(9)].map((_, i) => (
             <Skeleton key={i} className="aspect-square" />
@@ -169,25 +199,23 @@ export default function FeedPreview() {
       ) : (
         <div className="bg-slate-50 rounded-2xl p-4 sm:p-6">
           {/* Account Header */}
-          {selectedAccount !== 'all' && (
+          {selectedAccount !== "all" && (
             <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center">
                 <PlatformIcon platform={selectedPlatform} size="lg" />
               </div>
               <div>
                 <h3 className="font-semibold text-lg text-slate-900">
-                  @{filteredAccounts.find(a => a.id === selectedAccount)?.handle}
+                  @{filteredAccounts.find((a) => a.id === selectedAccount)?.handle}
                 </h3>
-                <p className="text-sm text-slate-500">
-                  {posts.length} scheduled posts
-                </p>
+                <p className="text-sm text-slate-500">{posts.length} scheduled posts</p>
               </div>
             </div>
           )}
 
           <FeedPreviewGrid
             posts={posts}
-            accounts={accounts}
+            accounts={allAccounts}
             platform={selectedPlatform}
             isReadOnly={isClient()}
           />
