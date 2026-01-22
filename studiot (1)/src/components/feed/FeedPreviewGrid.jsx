@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { base44 } from '@/api/base44Client';
+import { supabase } from "@/api/supabaseClient";
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Play, GripVertical } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -24,12 +24,20 @@ export default function FeedPreviewGrid({
   }, [posts]);
 
   const updateOrderMutation = useMutation({
-    mutationFn: async (orderedPosts) => {
-      const updates = orderedPosts.map((post, index) => 
-        base44.entities.Post.update(post.id, { order_index: index })
-      );
-      await Promise.all(updates);
-    },
+  mutationFn: async (orderedPosts) => {
+    const updates = orderedPosts.map((post, index) =>
+      supabase
+        .from("posts")
+        .update({ order_index: index })
+        .eq("id", post.id)
+    );
+
+    const results = await Promise.all(updates);
+
+    const error = results.find(r => r.error)?.error;
+    if (error) throw error;
+  }
+});
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['posts'] });
       toast.success('Order updated');
