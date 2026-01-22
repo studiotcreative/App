@@ -6,124 +6,130 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [user, setUser] = useState(null); // supabase auth user
-  const [profile, setProfile] = useState(null); // public.profiles row
-  const [memberships, setMemberships] = useState([]); // public.workspace_members rows
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [memberships, setMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  console.log('AUTH USER', user);
-  console.log('PROFILE ROLE', profile?.role);
+  const loadForSession = async (sess) => {
+    setSession(sess ?? null);
+    setUser(sess?.user ?? null);
 
-  // boot + listen
-  useEffect(() => {
-    let isMounted = true;
-
-    const load = async () => {
-      setLoading(true);
-
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!isMounted) return;
-
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
-
-      if (!session?.user) {
-        setProfile(null);
-        setMemberships([]);
-        setLoading(false);
-        return;
-      }
-
-      // load profile
-      const { data: p, error: pErr } = await supabase
-        .from("profiles")
-        .select("id, full_name, role, created_at")
-        .eq("id", session.user.id)
-        .single();
-
-      if (pErr) {
-        // common when profile trigger not installed yet
-        console.error("profiles load error:", pErr);
-        setProfile(null);
-      } else {
-        setProfile(p);
-      }
-
-      // load memberships (RLS will filter properly)
-      const { data: m, error: mErr } = await supabase
-        .from("workspace_members")
-        .select("workspace_id, user_id, role, created_at")
-        .eq("user_id", session.user.id);
-
-      if (mErr) {
-        console.error("memberships load error:", mErr);
-        setMemberships([]);
-      } else {
-        setMemberships(m ?? []);
-      }
-
+    if (!sess?.user) {
+      setProfile(null);
+      setMemberships([]);
       setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    // profile
+    const { data: p, error: pErr } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, role, created_at")
+      .eq("id", sess.user.id)
+      .maybeSingle();
+
+    if (pErr) {
+      console.error("profiles load error:", pErr);
+      setProfile(null);
+    } else {
+      setProfile(p ?? null);
+    }
+
+    // memberships
+    const { data: m, error: mErr } = await supabase
+      .from("workspace_members")
+      .select("workspace_id, user_id, role, created_at")
+      .eq("user_id", sess.user.id);
+
+    if (mErr) {
+      console.error("memberships load error:", mErr);
+      setMemberships([]);
+    } else {
+      setMemberships(m ?? []);
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const boot = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!mounted) return;
+
+      if (error) console.error("getSession error:", error);
+      await loadForSession(data?.session ?? null);
     };
 
-    load();
+    boot();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession ?? null);
-      setUser(newSession?.user ?? null);
-      // reload everything after auth changes
-      load();
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, newSession) => {
+        if (!mounted) return;
+        await loadForSession(newSession ?? null);
+      }
+    );
 
     return () => {
-      isMounted = false;
-      sub?.subscription?.unsubscribe?.();
+      mounted = false;
+      listener?.subscription?.unsubscribe();
     };
   }, []);
 
-  // helpers derived from DB roles (frontend isn’t enforcing, only reflecting)
+  // Derived helpers
   const globalRole = profile?.role ?? "user";
   const isAdmin = () => globalRole === "admin";
 
   const isClient = () =>
     memberships.some((m) => m.role === "client_viewer" || m.role === "client_approver");
 
-  const canApprove = () =>
-    isAdmin() || memberships.some((m) => m.role === "client_approver");
+  const canApprove = () => isAdmin() || memberships.some((m) => m.role === "client_approver");
 
   const hasAccessToWorkspace = (workspaceId) =>
     isAdmin() || memberships.some((m) => m.workspace_id === workspaceId);
 
-  // if client, usually one workspace (your UI assumes that pattern)
   const getClientWorkspaceId = () => {
     if (isAdmin()) return null;
-    const cm = memberships.find((m) => m.role === "client_viewer" || m.role === "client_approver");
+    const cm = memberships.find(
+      (m) => m.role === "client_viewer" || m.role === "client_approver"
+    );
     return cm?.workspace_id ?? null;
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error("signOut error:", error);
   };
 
-  const value = useMemo(() => ({
-    session,
-    user,
-    profile,
-    memberships,
-    loading,
-    globalRole,
-    isAdmin,
-    isClient,
-    canApprove,
-    hasAccessToWorkspace,
-    getClientWorkspaceId,
-    signOut,
-    refresh: async () => {
-      // lightweight refresh: re-fetch profile/memberships
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
-    }
-  }), [session, user, profile, memberships, loading]);
+  const value = useMemo(
+    () => ({
+      session,
+      user,
+      profile,
+      memberships,
+      loading,
+      globalRole,
+      isAdmin,
+      isClient,
+      canApprove,
+      hasAccessToWorkspace,
+      getClientWorkspaceId,
+      signOut,
+      refresh: async () => {
+        const { data } = await supabase.auth.getSession();
+        await loadForSession(data?.session ?? null);
+      },
+    }),
+    [session, user, profile, memberships, loading]
+  );
+
+  // Debug (optional)
+  console.log("AUTH USER", user);
+  console.log("PROFILE ROLE", profile?.role);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -133,3 +139,4 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
+
