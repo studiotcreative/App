@@ -147,7 +147,7 @@ export default function WorkspaceDetails() {
   if (error) throw error;
 },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts', workspaceId] });
       setShowAccountDialog(false);
       resetAccountForm();
       toast.success('Account updated');
@@ -160,7 +160,7 @@ export default function WorkspaceDetails() {
   if (error) throw error;
 },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace-accounts', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts', workspaceId] });
       toast.success('Account removed');
     }
   });
@@ -177,7 +177,7 @@ export default function WorkspaceDetails() {
     if (error) throw error;
   },
   onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
     setShowMemberDialog(false);
     setMemberForm({ user_email: '', role: 'client_viewer' });
     toast.success('Member added');
@@ -194,7 +194,7 @@ export default function WorkspaceDetails() {
     if (error) throw error;
   },
   onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ['workspace-members', workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
     toast.success('Member removed');
   }
 });
