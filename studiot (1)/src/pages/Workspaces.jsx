@@ -2,14 +2,14 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient";
-import { useAuth } from "@/components/auth/AuthProvider"; // keep using the same import path
+import { useAuth } from "@/components/auth/AuthProvider";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Workspaces() {
-  const { isLoadingAuth, user } = useAuth();
+  const { loading, user } = useAuth();
 
   const {
     data: workspaces = [],
@@ -19,7 +19,7 @@ export default function Workspaces() {
     refetch,
   } = useQuery({
     queryKey: ["workspaces"],
-    enabled: !isLoadingAuth && !!user,
+    enabled: !loading && !!user,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("workspaces")
@@ -31,12 +31,23 @@ export default function Workspaces() {
     },
   });
 
-  if (isLoadingAuth) {
+  if (loading) {
     return (
       <div className="p-6">
         <Skeleton className="h-8 w-48 mb-4" />
         <Skeleton className="h-24 w-full mb-3" />
         <Skeleton className="h-24 w-full mb-3" />
+      </div>
+    );
+  }
+
+  // optional: if user is null after loading finishes, route to login
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Card className="p-4">
+          <div className="text-sm">You’re not signed in.</div>
+        </Card>
       </div>
     );
   }
@@ -62,14 +73,14 @@ export default function Workspaces() {
             Failed to load workspaces: {error?.message || "Unknown error"}
           </div>
           <div className="text-xs text-muted-foreground mt-2">
-            If this returns an empty list but you expect rows, it’s almost always RLS or missing memberships.
+            If you’re getting 500s, it’s usually a broken RLS function/policy (not just “denied”).
           </div>
         </Card>
       ) : workspaces.length === 0 ? (
         <Card className="p-6">
           <div className="font-medium">No workspaces found.</div>
           <div className="text-sm text-muted-foreground mt-1">
-            If you’re an admin and still see nothing, your RLS/policies are blocking select.
+            If you’re an admin and still see nothing, your RLS/policies are blocking select (or there are no rows).
           </div>
         </Card>
       ) : (
@@ -78,9 +89,7 @@ export default function Workspaces() {
             <Link key={w.id} to={`/WorkspaceDetails?workspaceId=${w.id}`}>
               <Card className="p-4 hover:shadow-sm transition">
                 <div className="font-semibold">{w.name}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {w.id}
-                </div>
+                <div className="text-xs text-muted-foreground mt-1">{w.id}</div>
               </Card>
             </Link>
           ))}
@@ -89,3 +98,4 @@ export default function Workspaces() {
     </div>
   );
 }
+
