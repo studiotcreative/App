@@ -15,6 +15,7 @@ export function AuthProvider({ children }) {
     setSession(sess ?? null);
     setUser(sess?.user ?? null);
 
+    // Signed out
     if (!sess?.user) {
       setProfile(null);
       setMemberships([]);
@@ -24,7 +25,7 @@ export function AuthProvider({ children }) {
 
     setLoading(true);
 
-    // profile
+    // 1) Load profile
     const { data: p, error: pErr } = await supabase
       .from("profiles")
       .select("id, email, full_name, role, created_at")
@@ -38,7 +39,7 @@ export function AuthProvider({ children }) {
       setProfile(p ?? null);
     }
 
-    // memberships
+    // 2) Load workspace memberships
     const { data: m, error: mErr } = await supabase
       .from("workspace_members")
       .select("workspace_id, user_id, role, created_at")
@@ -58,6 +59,7 @@ export function AuthProvider({ children }) {
     let mounted = true;
 
     const boot = async () => {
+      setLoading(true);
       const { data, error } = await supabase.auth.getSession();
       if (!mounted) return;
 
@@ -80,20 +82,20 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  // Derived helpers
+  // Derived values (booleans, not functions)
   const globalRole = profile?.role ?? "user";
-  const isAdmin = () => globalRole === "admin";
+  const isAdmin = globalRole === "admin";
+  const isClient = memberships.some(
+    (m) => m.role === "client_viewer" || m.role === "client_approver"
+  );
+  const canApprove = isAdmin || memberships.some((m) => m.role === "client_approver");
 
-  const isClient = () =>
-    memberships.some((m) => m.role === "client_viewer" || m.role === "client_approver");
-
-  const canApprove = () => isAdmin() || memberships.some((m) => m.role === "client_approver");
-
+  // Helpers
   const hasAccessToWorkspace = (workspaceId) =>
-    isAdmin() || memberships.some((m) => m.workspace_id === workspaceId);
+    isAdmin || memberships.some((m) => m.workspace_id === workspaceId);
 
   const getClientWorkspaceId = () => {
-    if (isAdmin()) return null;
+    if (isAdmin) return null;
     const cm = memberships.find(
       (m) => m.role === "client_viewer" || m.role === "client_approver"
     );
@@ -105,8 +107,35 @@ export function AuthProvider({ children }) {
     if (error) console.error("signOut error:", error);
   };
 
+  const refresh = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) console.error("refresh getSession error:", error);
+    await loadForSession(data?.session ?? null);
+  };
+
   const value = useMemo(
     () => ({
+      session,
+      user,
+      profile,
+      memberships,
+      loading,
+
+      // derived
+      globalRole,
+      isAdmin,
+      isClient,
+      canApprove,
+
+      // helpers
+      hasAccessToWorkspace,
+      getClientWorkspaceId,
+
+      // actions
+      signOut,
+      refresh,
+    }),
+    [
       session,
       user,
       profile,
@@ -116,20 +145,14 @@ export function AuthProvider({ children }) {
       isAdmin,
       isClient,
       canApprove,
-      hasAccessToWorkspace,
-      getClientWorkspaceId,
-      signOut,
-      refresh: async () => {
-        const { data } = await supabase.auth.getSession();
-        await loadForSession(data?.session ?? null);
-      },
-    }),
-    [session, user, profile, memberships, loading]
+    ]
   );
 
-  // Debug (optional)
-  console.log("AUTH USER", user);
-  console.log("PROFILE ROLE", profile?.role);
+  // Debug (safe + non-spammy)
+  useEffect(() => {
+    console.log("AUTH USER", user);
+    console.log("PROFILE ROLE", profile?.role);
+  }, [user, profile?.role]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -139,4 +162,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
-
